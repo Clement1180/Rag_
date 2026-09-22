@@ -1,52 +1,43 @@
-"""Configuration minimale pour faire tourner chunk.py et ses tests.
-
-Si vous avez déjà votre propre config.py, gardez-la : chunk.py lit les champs
-ajoutés en v2 (parent_tokens, dedoublonner,
-min_section_tokens, titre_dans_parent) avec une valeur par défaut, et
-n'exige donc aucune modification de votre Config.
-"""
+"""Configuration du parser. Tous les défauts sont orientés RAG."""
 from __future__ import annotations
 
-import json
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Iterable, Iterator
-
-DATA = Path("data")
-PAGES_JSONL = DATA / "pages.jsonl"
-CHUNKS_JSONL = DATA / "chunks.jsonl"
-PARENTS_JSONL = DATA / "parents.jsonl"
+from dataclasses import dataclass, field
+from typing import Literal
 
 
-@dataclass
-class Config:
-    strategie: str = "structurel"            # structurel | recursif | fixe
-    chunk_tokens: int = 256
-    chunk_overlap: int = 0
-    parent_tokens: int | None = None         # None -> 4 × chunk_tokens
-    ingest_version: str = "v1"
-    prefixe_contexte: bool = True
-    tableaux_par_ligne: bool = True
-    dedoublonner: bool = True
-    dedoublonner_min_tokens: int = 25        # plus court : dépend de sa section, jamais dédoublonné
-    min_section_tokens: int = 40             # section plus courte fusionnée avec sa sœur/fille (0 = jamais)
-    titre_dans_parent: bool = True           # le parent commence par son fil d'Ariane
-    encodeur: str = "intfloat/multilingual-e5-base"
-    max_seq_length: int = 512
+@dataclass(slots=True)
+class HeadingConfig:
+    detect_from_style_names: bool = True      # « Level 1 », « Titre 2 », « Niveau 3 »…
+    detect_from_numbering: bool = True        # numérotation multi-niveaux Word
+    detect_from_text_numbering: bool = True   # « 2.3.1 Contexte » saisi à la main
+    detect_from_formatting: bool = True       # gras / taille / majuscules
+    use_toc: bool = True                      # promotion via le sommaire (ancres _Toc, texte)
+    max_chars: int = 200
+    max_words: int = 25
+    size_ratio: float = 1.15                  # taille >= corps * ratio
+    max_signature_share: float = 0.30         # garde-fou : signature trop fréquente = corps
+    min_paragraphs_for_share_guard: int = 15
+    allow_in_tables: bool = False
+    allow_in_textboxes: bool = False
 
 
-CFG = Config()
-
-
-def lire_jsonl(chemin: Path) -> Iterator[dict]:
-    with open(chemin, encoding="utf-8") as fh:
-        for ligne in fh:
-            if ligne.strip():
-                yield json.loads(ligne)
-
-
-def ecrire_jsonl(chemin: Path, lignes: Iterable[dict]) -> None:
-    chemin.parent.mkdir(parents=True, exist_ok=True)
-    with open(chemin, "w", encoding="utf-8") as fh:
-        for x in lignes:
-            fh.write(json.dumps(x, ensure_ascii=False) + "\n")
+@dataclass(slots=True)
+class ParserConfig:
+    include_furniture: bool = False           # en-têtes / pieds de page (exclus par défaut)
+    include_footnotes: bool = True
+    include_endnotes: bool = True
+    include_textboxes: bool = True
+    streaming: bool = True                    # iterparse : mémoire bornée sur gros documents
+    huge_tree: bool = False
+    max_uncompressed_bytes: int = 1_000_000_000
+    unwrap_layout_tables: bool = True         # tableau 1x1 = cadre de mise en page
+    detect_manual_lists: bool = True          # « • », « - », « a) » saisis à la main (DOC)
+    detect_repeated_furniture: bool = True    # « Page 3 sur 12 » injecté dans le corps
+    repeated_min_count: int = 3
+    detect_text_toc: bool = True              # sommaire « texte ....... 12 » sans champ
+    image_mode: Literal["reference", "embed", "export"] = "reference"
+    image_export_dir: str | None = None
+    hash_images: bool = True
+    read_pixel_size: bool = True              # lit l'en-tête image via Pillow si dispo
+    include_table_grid: bool = False          # grille 2D (coûteux, redondant avec table_cells)
+    headings: HeadingConfig = field(default_factory=HeadingConfig)
